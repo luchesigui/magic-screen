@@ -30,7 +30,7 @@ export function ScoreRing({ label, value, delta }: Props) {
           {clamped}
         </text>
       </svg>
-      {label}
+      <span className="ring-label">{label}</span>
       {delta !== undefined && delta !== 0 && (
         <span className={`delta ${delta > 0 ? 'up' : 'down'}`}>
           {delta > 0 ? '+' : '−'}

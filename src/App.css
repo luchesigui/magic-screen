@@ -68,7 +68,9 @@
   border: 1.5px dashed var(--separator);
   border-radius: 14px;
   color: var(--text-secondary);
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
 }
 
 .picker:active {
@@ -160,7 +162,9 @@
   font-weight: 500;
   display: grid;
   place-items: center;
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s;
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.15s;
 }
 
 .stepper-buttons button:active {
@@ -182,7 +186,9 @@
   color: #fff;
   font-size: 17px;
   font-weight: 700;
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.2s;
 }
 
 .cta:active {
@@ -331,18 +337,14 @@
 }
 
 .rings {
-  display: flex;
-  justify-content: space-around;
   margin-top: 16px;
-  padding-top: 16px;
   border-top: 1px solid var(--separator);
 }
 
 .ring {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   font-size: 13px;
   color: var(--text-secondary);
 }
@@ -351,6 +353,59 @@
   font-size: 15px;
   font-weight: 700;
   fill: var(--text);
+}
+
+.ring-label {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ring-detail {
+  border-bottom: 1px solid var(--separator);
+}
+
+.ring-detail summary {
+  display: flex;
+  align-items: center;
+  min-height: 74px;
+  cursor: pointer;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ring-detail summary::-webkit-details-marker {
+  display: none;
+}
+
+.ring-detail summary .ring {
+  flex: 1;
+}
+
+.ring-detail summary::after {
+  content: "›";
+  margin-left: 12px;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.ring-detail[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.ring .delta {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ring-detail-body {
+  margin-bottom: 1.25rem;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .alt-list {
@@ -397,14 +452,9 @@
   color: var(--text-secondary);
 }
 
-.alt-row[aria-pressed='true'] .alt-seats,
-.alt-row[aria-pressed='true'] .alt-score {
+.alt-row[aria-pressed="true"] .alt-seats,
+.alt-row[aria-pressed="true"] .alt-score {
   color: var(--gold);
-}
-
-.ring .delta {
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .ring .delta.up {
@@ -415,39 +465,59 @@
   color: light-dark(#c62828, #ff8a80);
 }
 
-.explainer summary {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--accent);
-  cursor: pointer;
-  list-style: none;
-  -webkit-tap-highlight-color: transparent;
+.home-grid,
+.home-side,
+.results-grid,
+.results-map,
+.results-side {
+  display: contents;
 }
 
-.explainer summary::-webkit-details-marker {
-  display: none;
-}
+@media (min-width: 1024px) {
+  .home-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
 
-.explainer summary::after {
-  content: '›';
-  float: right;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--text-secondary);
-  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
-}
+  .home-side,
+  .results-side {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
 
-.explainer[open] summary::after {
-  transform: rotate(90deg);
-}
+  .results-grid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
 
-.explainer-body {
-  margin-top: 4px;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
+  .results-map {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
 
-.explainer-body strong {
-  color: var(--text);
+  .cta {
+    margin-top: 0;
+  }
+
+  .picker {
+    min-height: 340px;
+  }
+
+  .picker-preview img {
+    max-height: 420px;
+  }
+
+  .analyzing {
+    min-height: 60vh;
+  }
+
+  .large-title h1 {
+    font-size: 40px;
+  }
 }

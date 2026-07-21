@@ -31,124 +31,124 @@ export function ResultsScreen({ map, rec, partySize, onReset }: Props) {
         </p>
       </header>
 
-      <section className="card seatmap-card">
-        <SeatMapView map={map} highlighted={active} />
-      </section>
+      <div className="results-grid">
+        <div className="results-map">
+          <section className="card seatmap-card">
+            <SeatMapView map={map} highlighted={active} />
+          </section>
 
-      <section className="card">
-        <div className="result-header">
-          <div>
-            <div className="seats">{seatRange(active)}</div>
-            <div className="row-note">Row {active.rowLabel}</div>
-          </div>
-          <div className="score-pill">{active.score}</div>
+          <section className="card">
+            <div className="result-header">
+              <div>
+                <div className="seats">{seatRange(active)}</div>
+                <div className="row-note">Row {active.rowLabel}</div>
+              </div>
+              <div className="score-pill">{active.score}</div>
+            </div>
+            {active.split && (
+              <p className="split-note">
+                No row had {partySize} adjacent seats free, so this block spans a
+                gap or aisle.
+              </p>
+            )}
+            <div className="rings">
+              <details className="ring-detail">
+                <summary>
+                  <ScoreRing
+                    label="Distance · 40%"
+                    value={active.breakdown.distance}
+                    delta={
+                      selected > 0
+                        ? active.breakdown.distance - rec.best.breakdown.distance
+                        : undefined
+                    }
+                  />
+                </summary>
+                <div className="ring-detail-body">
+                  Peaks at about 62% of the way back. That row puts the screen
+                  at the ~36° viewing angle THX recommends, wide enough to feel
+                  immersive without forcing your eyes to scan. Sitting too close
+                  is penalized harder than too far, because steep upward gaze
+                  angles cause neck strain.
+                </div>
+              </details>
+              <details className="ring-detail">
+                <summary>
+                  <ScoreRing
+                    label="Centering · 35%"
+                    value={active.breakdown.centering}
+                    delta={
+                      selected > 0
+                        ? active.breakdown.centering - rec.best.breakdown.centering
+                        : undefined
+                    }
+                  />
+                </summary>
+                <div className="ring-detail-body">
+                  How close the middle of the block is to the screen&apos;s center
+                  line. A straight-on view keeps the image geometry undistorted
+                  and both speakers equally distant.
+                </div>
+              </details>
+              <details className="ring-detail">
+                <summary>
+                  <ScoreRing
+                    label="Sound · 25%"
+                    value={active.breakdown.sound}
+                    delta={
+                      selected > 0
+                        ? active.breakdown.sound - rec.best.breakdown.sound
+                        : undefined
+                    }
+                  />
+                </summary>
+                <div className="ring-detail-body">
+                  Cinema audio is mixed and calibrated for a reference listening
+                  position: center, about two thirds back. This rewards how close
+                  your seats sit to that spot. It&apos;s an estimate from your
+                  position, not a check of the actual room&apos;s speakers or format
+                  (Atmos, IMAX and the like aren&apos;t visible in a seat map).
+                </div>
+              </details>
+            </div>
+            <p className="split-note">
+              Blocks that span an aisle lose 10% of their total. Tap an option to
+              compare each criterion with the top pick.
+            </p>
+          </section>
         </div>
-        {active.split && (
-          <p className="split-note">
-            No row had {partySize} adjacent seats free, so this block spans a
-            gap or aisle.
-          </p>
-        )}
-        <div className="rings">
-          <ScoreRing
-            label="Distance"
-            value={active.breakdown.distance}
-            delta={
-              selected > 0
-                ? active.breakdown.distance - rec.best.breakdown.distance
-                : undefined
-            }
-          />
-          <ScoreRing
-            label="Centering"
-            value={active.breakdown.centering}
-            delta={
-              selected > 0
-                ? active.breakdown.centering - rec.best.breakdown.centering
-                : undefined
-            }
-          />
-          <ScoreRing
-            label="Sound"
-            value={active.breakdown.sound}
-            delta={
-              selected > 0
-                ? active.breakdown.sound - rec.best.breakdown.sound
-                : undefined
-            }
-          />
+
+        <div className="results-side">
+          {rec.alternatives.length > 0 && (
+            <section className="card">
+              <div className="card-label">Options</div>
+              <div className="alt-list">
+                {options.map((block, i) => (
+                  <button
+                    key={`${block.rowLabel}-${block.seats[0].id}`}
+                    className="alt-row"
+                    aria-pressed={i === selected}
+                    onClick={() => setSelected(i)}
+                  >
+                    <span>
+                      <span className="alt-seats">{seatRange(block)}</span>
+                      <span className="alt-sub">
+                        {i === 0 ? "Top pick" : `Alternative ${i}`} · Row{" "}
+                        {block.rowLabel}
+                      </span>
+                    </span>
+                    <span className="alt-score">{block.score}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <button className="cta secondary" onClick={onReset}>
+            Check another session
+          </button>
         </div>
-      </section>
-
-      {rec.alternatives.length > 0 && (
-        <section className="card">
-          <div className="card-label">Options</div>
-          <div className="alt-list">
-            {options.map((block, i) => (
-              <button
-                key={`${block.rowLabel}-${block.seats[0].id}`}
-                className="alt-row"
-                aria-pressed={i === selected}
-                onClick={() => setSelected(i)}
-              >
-                <span>
-                  <span className="alt-seats">{seatRange(block)}</span>
-                  <span className="alt-sub">
-                    {i === 0 ? "Top pick" : `Alternative ${i}`} · Row{" "}
-                    {block.rowLabel}
-                  </span>
-                </span>
-                <span className="alt-score">{block.score}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <details className="card explainer">
-        <summary>How the scoring works</summary>
-        <div className="explainer-body">
-          <p>
-            Every block of {partySize} free {partySize === 1 ? "seat" : "seats"}{" "}
-            in a single row gets a score from 0 to 100. The score is pure
-            geometry, worked out from where the seats sit relative to the screen
-            and the center of the room. It doesn&rsquo;t measure the actual
-            room; screen size, speakers, and audio format aren&rsquo;t in a seat
-            map. It blends three criteria, three angles on the same
-            &ldquo;center, about two-thirds back&rdquo; sweet spot:
-          </p>
-          <p>
-            <strong>Distance · 40%</strong>: Peaks at about 62% of the way back.
-            That row puts the screen at the ~36° viewing angle THX recommends,
-            wide enough to feel immersive without forcing your eyes to scan.
-            Sitting too close is penalized harder than too far, because steep
-            upward gaze angles cause neck strain.
-          </p>
-          <p>
-            <strong>Centering · 35%</strong>: How close the middle of the block
-            is to the screen's center line. A straight-on view keeps the image
-            geometry undistorted and both speakers equally distant.
-          </p>
-          <p>
-            <strong>Sound · 25%</strong>: Cinema audio is mixed and calibrated
-            for a reference listening position: center, about two thirds back.
-            This rewards how close your seats sit to that spot. It&rsquo;s an
-            estimate from your position, not a check of the actual room&rsquo;s
-            speakers or format (Atmos, IMAX and the like aren&rsquo;t visible in
-            a seat map).
-          </p>
-          <p>
-            Because all three read the same position, a great seat tends to
-            score well on all of them. Blocks that span an aisle (when no row
-            fits everyone side by side) lose 10% of their total. Tap an option
-            to see how each criterion compares to the top pick.
-          </p>
-        </div>
-      </details>
-
-      <button className="cta secondary" onClick={onReset}>
-        Check another session
-      </button>
+      </div>
     </div>
   );
 }

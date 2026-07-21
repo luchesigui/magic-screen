@@ -70,3 +70,10 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+@media (min-width: 1024px) {
+  #root {
+    max-width: 1180px;
+    padding-inline: 32px;
+  }
+}
