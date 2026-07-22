@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ScoredBlock, SeatMap } from '../lib/types'
 
 const UNIT = 24
@@ -9,10 +10,13 @@ const PAD = 8
 
 interface Props {
   map: SeatMap
-  highlighted: ScoredBlock
+  highlighted: ScoredBlock | null
+  isEditing?: boolean
+  onToggleAisle?: (rowLabel: string, col: number) => void
 }
 
-export function SeatMapView({ map, highlighted }: Props) {
+export function SeatMapView({ map, highlighted, isEditing = false, onToggleAisle }: Props) {
+  const { t } = useTranslation()
   const { minCol, maxCol } = useMemo(() => {
     let min = Infinity
     let max = -Infinity
@@ -26,7 +30,7 @@ export function SeatMapView({ map, highlighted }: Props) {
   }, [map])
 
   const highlightedIds = useMemo(
-    () => new Set(highlighted.seats.map((s) => `${highlighted.rowLabel}:${s.col}`)),
+    () => new Set(highlighted?.seats.map((s) => `${highlighted.rowLabel}:${s.col}`) ?? []),
     [highlighted],
   )
 
@@ -44,13 +48,14 @@ export function SeatMapView({ map, highlighted }: Props) {
 
   const seatX = (col: number) => PAD + GUTTER + (col - minCol) * UNIT
 
+  const svgLabel = isEditing
+    ? t('results.correctMap')
+    : highlighted
+      ? t('results.seatMapDescription', { row: highlighted.rowLabel })
+      : t('home.seatMap')
+
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      role="img"
-      aria-label={`Seat map with recommended seats in row ${highlighted.rowLabel}`}
-    >
-      {/* Screen */}
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={svgLabel}>
       <path
         d={`M ${PAD + GUTTER + gridW * 0.06} ${screenY + (screenOnTop ? SCREEN_H : 0)}
             L ${PAD + GUTTER} ${screenY + (screenOnTop ? 0 : SCREEN_H)}
@@ -67,7 +72,7 @@ export function SeatMapView({ map, highlighted }: Props) {
         letterSpacing="3"
         fill="var(--text-secondary)"
       >
-        SCREEN
+        {t('results.screen')}
       </text>
 
       {visualRows.map((row, i) => {
@@ -86,23 +91,76 @@ export function SeatMapView({ map, highlighted }: Props) {
             </text>
             {row.seats.map((seat) => {
               const isPick = highlightedIds.has(`${row.label}:${seat.col}`)
+              const isAisle = seat.status === 'aisle'
+              const sx = seatX(seat.col)
+
               let fill = 'var(--seat-available)'
               if (seat.status === 'occupied' || seat.status === 'blocked') {
                 fill = 'var(--seat-occupied)'
-              } else if (seat.status !== 'available') {
+              } else if (seat.status !== 'available' && !isAisle) {
                 fill = 'var(--seat-special)'
               }
+
+              if (isAisle && !isEditing) {
+                return null
+              }
+
+              const label = isAisle
+                ? t('results.restoreSeat', { row: row.label, col: seat.col + 1 })
+                : t('results.markAsAisle', { row: row.label, col: seat.col + 1 })
+
               return (
-                <rect
+                <g
                   key={seat.id}
-                  className={isPick ? 'seat-best' : undefined}
-                  x={seatX(seat.col)}
-                  y={y}
-                  width={SEAT}
-                  height={SEAT}
-                  rx={6}
-                  fill={isPick ? 'var(--gold)' : fill}
-                />
+                  role={isEditing ? 'button' : undefined}
+                  tabIndex={isEditing ? 0 : undefined}
+                  aria-label={isEditing ? label : undefined}
+                  onClick={isEditing ? () => onToggleAisle?.(row.label, seat.col) : undefined}
+                  onKeyDown={
+                    isEditing
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            onToggleAisle?.(row.label, seat.col)
+                          }
+                        }
+                      : undefined
+                  }
+                  className={isEditing ? 'seat-interactive' : undefined}
+                  style={{ cursor: isEditing ? 'pointer' : 'default' }}
+                >
+                  {isAisle ? (
+                    <>
+                      <rect
+                        x={sx}
+                        y={y}
+                        width={SEAT}
+                        height={SEAT}
+                        rx={6}
+                        fill="var(--bg-inset)"
+                        stroke="var(--text-secondary)"
+                        strokeDasharray="3 3"
+                        strokeWidth="1.5"
+                      />
+                      <path
+                        d={`M ${sx + 5} ${y + 5} L ${sx + SEAT - 5} ${y + SEAT - 5}`}
+                        stroke="var(--text-secondary)"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    </>
+                  ) : (
+                    <rect
+                      className={isPick && !isEditing ? 'seat-best' : undefined}
+                      x={sx}
+                      y={y}
+                      width={SEAT}
+                      height={SEAT}
+                      rx={6}
+                      fill={isPick ? 'var(--gold)' : fill}
+                    />
+                  )}
+                </g>
               )
             })}
           </g>

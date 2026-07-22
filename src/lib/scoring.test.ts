@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { recommend } from './scoring'
+import { DEFAULT_SCORE_WEIGHTS, getScoreWeights, recommend } from './scoring'
 import type { Seat, SeatMap, SeatStatus } from './types'
 
 /**
@@ -90,5 +90,119 @@ describe('recommend', () => {
     const rec = recommend(map, 2)!
     const meanCol = rec.best.seats.reduce((s, x) => s + x.col, 0) / 2
     expect(Math.abs(meanCol - 5.5)).toBeLessThanOrEqual(1)
+  })
+
+  describe('score priority', () => {
+    const competitiveMap = () => {
+      const rows = Array(26).fill('xxxxxxxxxxxxxxxxxxxxx')
+      rows[9] = 'xxxxxxxxxxooxxxxxxxxx' // centered, but too close to the screen
+      rows[16] = 'xxxxooxxxxxxxxxxxxxxx' // ideal distance, deliberately off-center
+      rows[20] = 'xxxxxooxxxxxxxxxxxxxx' // best sound balance, slightly farther back
+      return makeMap(rows)
+    }
+
+    it('preserves the exact default weights and ranking with no priorities', () => {
+      const map = competitiveMap()
+      const recDefault = recommend(map, 2)!
+      const recNoPriorities = recommend(map, 2, [])!
+
+      expect(DEFAULT_SCORE_WEIGHTS).toEqual({ distance: 0.4, angle: 0.35, sound: 0.25 })
+      expect(getScoreWeights()).toEqual(DEFAULT_SCORE_WEIGHTS)
+      expect(getScoreWeights([])).toEqual(DEFAULT_SCORE_WEIGHTS)
+      expect(recNoPriorities).toEqual(recDefault)
+    })
+
+    it('gives one chosen pillar the largest weight', () => {
+      expect(getScoreWeights(['distance'])).toEqual({ distance: 0.55, angle: 0.225, sound: 0.225 })
+      expect(getScoreWeights(['angle'])).toEqual({ distance: 0.225, angle: 0.55, sound: 0.225 })
+      expect(getScoreWeights(['sound'])).toEqual({ distance: 0.225, angle: 0.225, sound: 0.55 })
+    })
+
+    it('splits the dominant share equally between two chosen pillars', () => {
+      expect(getScoreWeights(['distance', 'sound'])).toEqual({ distance: 0.4, angle: 0.2, sound: 0.4 })
+      expect(getScoreWeights(['distance', 'angle'])).toEqual({ distance: 0.4, angle: 0.4, sound: 0.2 })
+      expect(getScoreWeights(['sound', 'angle'])).toEqual({ distance: 0.2, angle: 0.4, sound: 0.4 })
+    })
+
+    it('uses equal thirds when all pillars are chosen', () => {
+      const weights = getScoreWeights(['distance', 'sound', 'angle'])
+      expect(weights).toEqual({ distance: 1 / 3, angle: 1 / 3, sound: 1 / 3 })
+      expect(weights.distance + weights.angle + weights.sound).toBe(1)
+    })
+
+    it('changes the competitive recommendation for selected pillars', () => {
+      const map = competitiveMap()
+      const distance = recommend(map, 2, ['distance'])!.best
+      const angle = recommend(map, 2, ['angle'])!.best
+      const sound = recommend(map, 2, ['sound'])!.best
+
+      expect(distance.rowLabel).toBe('Q')
+      expect(angle.rowLabel).toBe('J')
+      expect(sound.rowLabel).toBe('U')
+      expect(distance.breakdown.distance).toBeGreaterThan(angle.breakdown.distance)
+      expect(angle.breakdown.centering).toBeGreaterThan(distance.breakdown.centering)
+      expect(sound.breakdown.sound).toBeGreaterThan(distance.breakdown.sound)
+    })
+  })
+
+  describe('corridor corrections', () => {
+    it('prevents corrected former-seat positions from being recommended when marked as aisle', () => {
+      const initialMap = makeMap(Array(15).fill(openRow))
+      const initialRec = recommend(initialMap, 2)!
+      const targetSeat = initialRec.best.seats[0]
+
+      // Correct the target seat to an aisle
+      const correctedMap: SeatMap = {
+        ...initialMap,
+        rows: initialMap.rows.map((row) => {
+          if (row.label !== initialRec.best.rowLabel) return row
+          return {
+            ...row,
+            seats: row.seats.map((s) => (s.col === targetSeat.col ? { ...s, status: 'aisle' } : s)),
+          }
+        }),
+      }
+
+      const correctedRec = recommend(correctedMap, 2)!
+      const allRecommended = [correctedRec.best, ...correctedRec.alternatives]
+      for (const block of allRecommended) {
+        if (block.rowLabel === initialRec.best.rowLabel) {
+          for (const seat of block.seats) {
+            expect(seat.col).not.toBe(targetSeat.col)
+            expect(seat.status).toBe('available')
+          }
+        }
+      }
+    })
+
+    it('restores previous recommendation outcome when correction is undone', () => {
+      const initialMap = makeMap(Array(15).fill(openRow))
+      const initialRec = recommend(initialMap, 2)!
+
+      // Mark best seats as aisles
+      const correctedMap: SeatMap = {
+        ...initialMap,
+        rows: initialMap.rows.map((row) => {
+          if (row.label !== initialRec.best.rowLabel) return row
+          return {
+            ...row,
+            seats: row.seats.map((s) =>
+              initialRec.best.seats.some((target) => target.col === s.col)
+                ? { ...s, status: 'aisle' }
+                : s,
+            ),
+          }
+        }),
+      }
+
+      const correctedRec = recommend(correctedMap, 2)!
+      expect(correctedRec.best.rowLabel).not.toBe(initialRec.best.rowLabel)
+
+      // Undo: restore initial map
+      const undoneRec = recommend(initialMap, 2)!
+      expect(undoneRec.best.rowLabel).toBe(initialRec.best.rowLabel)
+      expect(undoneRec.best.seats.map((s) => s.col)).toEqual(initialRec.best.seats.map((s) => s.col))
+      expect(undoneRec.best.score).toBe(initialRec.best.score)
+    })
   })
 })

@@ -1,3 +1,5 @@
+export type ScorePriority = 'distance' | 'sound' | 'angle'
+
 export type SeatStatus =
   | 'available'
   | 'occupied'
@@ -5,6 +7,7 @@ export type SeatStatus =
   | 'wheelchair'
   | 'companion'
   | 'reduced-mobility'
+  | 'aisle'
 
 export interface Seat {
   id: string

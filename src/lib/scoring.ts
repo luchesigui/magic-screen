@@ -1,15 +1,21 @@
-import type {
-  Recommendation,
-  ScoreBreakdown,
-  ScoredBlock,
-  Seat,
-  SeatMap,
-} from './types'
+import type { Recommendation, ScoreBreakdown, ScorePriority, ScoredBlock, Seat, SeatMap } from './types'
 
-// Weights for the three science-based criteria.
-const W_DISTANCE = 0.4
-const W_CENTERING = 0.35
-const W_SOUND = 0.25
+// Default weights preserve the original theoretical-best ranking.
+export const DEFAULT_SCORE_WEIGHTS = { distance: 0.4, angle: 0.35, sound: 0.25 }
+
+export function getScoreWeights(priorities: readonly ScorePriority[] = []): Record<ScorePriority, number> {
+  const selected = new Set(priorities)
+  if (selected.size === 0) return DEFAULT_SCORE_WEIGHTS
+  if (selected.size === 3) return { distance: 1 / 3, angle: 1 / 3, sound: 1 / 3 }
+
+  const selectedWeight = selected.size === 1 ? 0.55 : 0.4
+  const unselectedWeight = selected.size === 1 ? 0.225 : 0.2
+  return {
+    distance: selected.has('distance') ? selectedWeight : unselectedWeight,
+    angle: selected.has('angle') ? selectedWeight : unselectedWeight,
+    sound: selected.has('sound') ? selectedWeight : unselectedWeight,
+  }
+}
 
 // Optimal normalized depth (0 = screen row, 1 = back row). ~2/3 back matches
 // THX's ~36° horizontal viewing-angle recommendation and the Dolby mix position.
@@ -20,7 +26,6 @@ const SOUND_DEPTH = 0.68
 // slightly too far back, so the falloff is asymmetric.
 const SIGMA_FRONT = 0.2
 const SIGMA_BACK = 0.34
-
 const SOUND_SIGMA_X = 0.5
 const SOUND_SIGMA_D = 0.3
 
@@ -42,13 +47,7 @@ function roomGeometry(map: SeatMap): RoomGeometry {
     }
   }
   const centerCol = (minCol + maxCol) / 2
-  return {
-    minCol,
-    maxCol,
-    centerCol,
-    halfWidth: Math.max((maxCol - minCol) / 2, 1),
-    rowCount: map.rows.length,
-  }
+  return { minCol, maxCol, centerCol, halfWidth: Math.max((maxCol - minCol) / 2, 1), rowCount: map.rows.length }
 }
 
 /** Normalized depth of a row: 0 at the screen, 1 at the back wall. */
@@ -68,41 +67,24 @@ function centeringScore(lateral: number): number {
 
 function soundScore(lateral: number, depth: number): number {
   const dd = depth - SOUND_DEPTH
-  return Math.exp(
-    -((lateral * lateral) / (2 * SOUND_SIGMA_X * SOUND_SIGMA_X) +
-      (dd * dd) / (2 * SOUND_SIGMA_D * SOUND_SIGMA_D)),
-  )
+  return Math.exp(-((lateral * lateral) / (2 * SOUND_SIGMA_X * SOUND_SIGMA_X) + (dd * dd) / (2 * SOUND_SIGMA_D * SOUND_SIGMA_D)))
 }
 
 function scoreSeats(
-  seats: Seat[],
-  rowIndex: number,
-  geo: RoomGeometry,
-  split: boolean,
-  rowLabel: string,
+  seats: Seat[], rowIndex: number, geo: RoomGeometry, split: boolean, rowLabel: string,
+  weights: ReturnType<typeof getScoreWeights>,
 ): ScoredBlock {
   const depth = rowDepth(rowIndex, geo.rowCount)
   const meanCol = seats.reduce((sum, s) => sum + s.col, 0) / seats.length
   const lateral = (meanCol - geo.centerCol) / geo.halfWidth
-
   const breakdown: ScoreBreakdown = {
     distance: Math.round(distanceScore(depth) * 100),
     centering: Math.round(centeringScore(lateral) * 100),
     sound: Math.round(soundScore(lateral, depth) * 100),
   }
-  let score =
-    W_DISTANCE * breakdown.distance +
-    W_CENTERING * breakdown.centering +
-    W_SOUND * breakdown.sound
+  let score = weights.distance * breakdown.distance + weights.angle * breakdown.centering + weights.sound * breakdown.sound
   if (split) score *= 0.9
-
-  return {
-    rowLabel,
-    seats,
-    score: Math.round(score),
-    breakdown,
-    split,
-  }
+  return { rowLabel, seats, score: Math.round(score), breakdown, split }
 }
 
 /** Runs of seats that are available AND physically adjacent (consecutive cols). */
@@ -112,9 +94,8 @@ function contiguousRuns(seats: Seat[]): Seat[][] {
   let run: Seat[] = []
   for (const seat of sorted) {
     const prev = run[run.length - 1]
-    if (seat.status === 'available' && (!prev || seat.col === prev.col + 1)) {
-      run.push(seat)
-    } else {
+    if (seat.status === 'available' && (!prev || seat.col === prev.col + 1)) run.push(seat)
+    else {
       if (run.length > 0) runs.push(run)
       run = seat.status === 'available' ? [seat] : []
     }
@@ -136,43 +117,30 @@ function dedupeTop(blocks: ScoredBlock[], count: number): ScoredBlock[] {
   return picked
 }
 
-/**
- * Recommend the best block of `partySize` seats in a single row.
- * Prefers contiguous runs; falls back to a same-row block spanning an aisle
- * (marked `split`) when no row has enough adjacent free seats.
- * Returns null only when no single row has `partySize` available seats at all.
- */
-export function recommend(map: SeatMap, partySize: number): Recommendation | null {
+/** Recommend the best block of `partySize` seats in a single row. */
+export function recommend(map: SeatMap, partySize: number, priorities: readonly ScorePriority[] = []): Recommendation | null {
   if (partySize < 1 || map.rows.length === 0) return null
   const geo = roomGeometry(map)
-
+  const weights = getScoreWeights(priorities)
   const contiguous: ScoredBlock[] = []
   map.rows.forEach((row, rowIndex) => {
     for (const run of contiguousRuns(row.seats)) {
       for (let start = 0; start + partySize <= run.length; start++) {
-        contiguous.push(
-          scoreSeats(run.slice(start, start + partySize), rowIndex, geo, false, row.label),
-        )
+        contiguous.push(scoreSeats(run.slice(start, start + partySize), rowIndex, geo, false, row.label, weights))
       }
     }
   })
 
   let candidates = contiguous
   if (candidates.length === 0) {
-    // Fallback: any window of N available seats in one row, gaps allowed.
     map.rows.forEach((row, rowIndex) => {
-      const avail = row.seats
-        .filter((s) => s.status === 'available')
-        .sort((a, b) => a.col - b.col)
+      const avail = row.seats.filter((s) => s.status === 'available').sort((a, b) => a.col - b.col)
       for (let start = 0; start + partySize <= avail.length; start++) {
-        candidates.push(
-          scoreSeats(avail.slice(start, start + partySize), rowIndex, geo, true, row.label),
-        )
+        candidates.push(scoreSeats(avail.slice(start, start + partySize), rowIndex, geo, true, row.label, weights))
       }
     })
   }
   if (candidates.length === 0) return null
-
   const top = dedupeTop(candidates, 5)
   return { best: top[0], alternatives: top.slice(1) }
 }

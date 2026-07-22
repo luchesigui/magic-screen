@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 interface Props {
   label: string
   value: number
@@ -9,10 +11,17 @@ const R = 22
 const CIRC = 2 * Math.PI * R
 
 export function ScoreRing({ label, value, delta }: Props) {
+  const { t } = useTranslation()
   const clamped = Math.max(0, Math.min(100, value))
   return (
     <div className="ring">
-      <svg width="58" height="58" viewBox="0 0 58 58" role="img" aria-label={`${label} ${clamped} out of 100`}>
+      <svg
+        width="58"
+        height="58"
+        viewBox="0 0 58 58"
+        role="img"
+        aria-label={t('results.scoreOutOf', { label, score: clamped })}
+      >
         <circle cx="29" cy="29" r={R} fill="none" stroke="var(--bg-inset)" strokeWidth="5" />
         <circle
           cx="29"
@@ -34,7 +43,7 @@ export function ScoreRing({ label, value, delta }: Props) {
       {delta !== undefined && delta !== 0 && (
         <span className={`delta ${delta > 0 ? 'up' : 'down'}`}>
           {delta > 0 ? '+' : '−'}
-          {Math.abs(delta)} vs top pick
+          {Math.abs(delta)} {t('results.versusTopPick')}
         </span>
       )}
     </div>

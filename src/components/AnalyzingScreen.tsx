@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
-const STAGES = [
-  'Reading the room…',
-  'Mapping every seat…',
-  'Scoring distance, centering and sound…',
-  'Picking your spot…',
-]
+const STAGE_KEYS = [
+  'analyzing.reading',
+  'analyzing.mapping',
+  'analyzing.scoring',
+  'analyzing.picking',
+] as const
 
 export function AnalyzingScreen({ previewUrl }: { previewUrl: string }) {
+  const { t } = useTranslation()
   const [stageIndex, setStageIndex] = useState(0)
 
   useEffect(() => {
     const id = setInterval(
-      () => setStageIndex((i) => Math.min(i + 1, STAGES.length - 1)),
+      () => setStageIndex((i) => Math.min(i + 1, STAGE_KEYS.length - 1)),
       3500,
     )
     return () => clearInterval(id)
@@ -23,7 +25,7 @@ export function AnalyzingScreen({ previewUrl }: { previewUrl: string }) {
       <div className="backdrop" style={{ backgroundImage: `url(${previewUrl})` }} />
       <div className="glass" role="status">
         <div className="spinner" aria-hidden />
-        <p>{STAGES[stageIndex]}</p>
+        <p>{t(STAGE_KEYS[stageIndex])}</p>
       </div>
     </div>
   )

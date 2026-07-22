@@ -34,7 +34,9 @@ const PROMPT = `This image is a cinema seat-selection map. Transcribe the full s
 
 - Order rows from CLOSEST to the screen ("TELA"/"SCREEN" bar) to FARTHEST.
 - One token per grid column so vertically aligned seats sit at the same token position in every row; use "." for aisles/gaps.
-- Each seat token is its printed label (e.g. "K10"). Occupied seats hide their number behind a person icon — infer their label from the neighbors' numbering, and append "x" (e.g. "K10x"). Other non-available markers: b=blocked, w=wheelchair, c=companion, r=reduced mobility.
+- Each seat token is its printed label (e.g. "K10"). Occupied seats hide their number behind a person icon, so append "x" (e.g. "K10x").
+- To label a hidden seat, anchor on the CLOSEST PRINTED number in the same row and count outward from it, one step per seat. Never carry a count across a gap: a row's numbering often skips at an aisle (e.g. ... 11 12 [gap] 16 17 ...), so a seat right after a gap is NOT the previous number plus one. Always re-anchor on the nearest printed number on the far side of the gap.
+- Other non-available markers: b=blocked, w=wheelchair, c=companion, r=reduced mobility.
 - Check the legend to map icons correctly. Most seats are usually available — only suffix seats clearly drawn as non-available.
 - Include EVERY seat in EVERY row.`
 
@@ -48,6 +50,14 @@ const STATUS_BY_SUFFIX: Record<string, string> = {
 
 // How many status disagreements two runs may have and still "converge".
 const CONVERGE_TOLERANCE = 2
+
+// How many seats may exist in one run's grid but not the other's and still
+// "converge". Runs occasionally disagree by a seat or two around a wide aisle
+// (numbering skips there, e.g. ...11 12 [gap] 16 17...). Telemetry showed that
+// was triggering a 3rd vote on most analyses, and the tie-break did not fix it:
+// the extra call doubled cost and latency for the same wrong answer. Below this
+// threshold the two runs are close enough to merge.
+const GRID_TOLERANCE = 4
 
 interface Seat {
   id: string
@@ -144,25 +154,41 @@ async function callGemini(
   }
 }
 
+/**
+ * Merge key for a seat. Case-folded on purpose: some cinemas print a row in
+ * lowercase (e.g. row "k"), and runs disagree on the casing they echo back.
+ * Keying case-sensitively made the same row read as two disjoint sets of seats,
+ * which forced a 3rd vote and split the votes so real occupied seats fell below
+ * the majority and were reported as free. Display still uses the printed id.
+ */
+const seatKey = (rowLabel: string, seatId: string) => `${rowLabel}:${seatId}`.toUpperCase()
+
 function statusById(map: SeatMap): Map<string, string> {
   const m = new Map<string, string>()
   for (const row of map.rows) {
-    for (const seat of row.seats) m.set(`${row.label}:${seat.id}`, seat.status)
+    for (const seat of row.seats) m.set(seatKey(row.label, seat.id), seat.status)
   }
   return m
 }
 
-/** Same grid (identical seat-id set) and few status disagreements → converged. */
-function compare(a: SeatMap, b: SeatMap): { gridMatch: boolean; disagreements: number } {
+/**
+ * How far apart two runs are: `gridDiff` counts seats present in one grid but
+ * not the other, `disagreements` counts status conflicts among the seats both
+ * saw. Small values on both → close enough to merge without a 3rd vote.
+ */
+function compare(a: SeatMap, b: SeatMap): { gridDiff: number; disagreements: number } {
   const ma = statusById(a)
   const mb = statusById(b)
-  if (ma.size !== mb.size) return { gridMatch: false, disagreements: Infinity }
+  let gridDiff = 0
   let disagreements = 0
   for (const [key, status] of ma) {
-    if (!mb.has(key)) return { gridMatch: false, disagreements: Infinity }
-    if (mb.get(key) !== status) disagreements++
+    if (!mb.has(key)) gridDiff++
+    else if (mb.get(key) !== status) disagreements++
   }
-  return { gridMatch: true, disagreements }
+  for (const key of mb.keys()) {
+    if (!ma.has(key)) gridDiff++
+  }
+  return { gridDiff, disagreements }
 }
 
 /** Two-run merge: a seat is available only if BOTH runs agree it is (conservative). */
@@ -173,7 +199,7 @@ function mergeUnion(a: SeatMap, b: SeatMap): SeatMap {
     rows: a.rows.map((row) => ({
       label: row.label,
       seats: row.seats.map((seat) => {
-        const bStatus = other.get(`${row.label}:${seat.id}`)
+        const bStatus = other.get(seatKey(row.label, seat.id))
         if (seat.status !== 'available') return seat
         if (bStatus && bStatus !== 'available') return { ...seat, status: bStatus }
         return seat
@@ -193,7 +219,7 @@ function mergeMajority(maps: SeatMap[]): SeatMap {
   for (const m of maps) {
     for (const row of m.rows) {
       for (const seat of row.seats) {
-        const key = `${row.label}:${seat.id}`
+        const key = seatKey(row.label, seat.id)
         votes.set(key, [...(votes.get(key) ?? []), seat.status])
       }
     }
@@ -203,7 +229,7 @@ function mergeMajority(maps: SeatMap[]): SeatMap {
     rows: base.rows.map((row) => ({
       label: row.label,
       seats: row.seats.map((seat) => {
-        const statuses = votes.get(`${row.label}:${seat.id}`) ?? []
+        const statuses = votes.get(seatKey(row.label, seat.id)) ?? []
         const bad = statuses.filter((s) => s !== 'available')
         if (bad.length >= 2) {
           const top = bad.sort(
@@ -268,7 +294,10 @@ Deno.serve(async (req: Request) => {
 
     const apiKey = Deno.env.get('GEMINI_API_KEY')
     if (!apiKey) return json(500, { error: 'GEMINI_API_KEY secret is not configured' })
-    const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-flash-latest'
+    // Pinned on purpose: the `-latest` aliases silently re-point to a new model
+    // when Google promotes one, changing accuracy, latency and price with no
+    // warning. Bump this only after re-running the accuracy bench.
+    const model = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.6-flash'
     const maxVotes = Math.max(1, Number(Deno.env.get('GEMINI_MAX_VOTES') ?? '3'))
     const media = mediaType ?? 'image/jpeg'
     const t0 = Date.now()
@@ -296,15 +325,23 @@ Deno.serve(async (req: Request) => {
     let votesUsed = results.length
     let converged: boolean
     let disagreements = 0
+    let gridDiff = 0
 
     if (results.length < 2) {
       final = results[0]
       converged = false
     } else {
-      const cmp = compare(results[0], results[1])
-      disagreements = Number.isFinite(cmp.disagreements) ? cmp.disagreements : -1
-      if ((cmp.gridMatch && cmp.disagreements <= CONVERGE_TOLERANCE) || maxVotes < 3) {
-        final = mergeUnion(results[0], results[1])
+      // Merge onto the richer grid: a seat missing from the base can never be
+      // recommended, which is worse than carrying one the other run didn't see.
+      const [base, other] = [...results].sort(
+        (x, y) => countSeats(y).seats - countSeats(x).seats,
+      )
+      const cmp = compare(base, other)
+      disagreements = cmp.disagreements
+      gridDiff = cmp.gridDiff
+      const close = cmp.gridDiff <= GRID_TOLERANCE && cmp.disagreements <= CONVERGE_TOLERANCE
+      if (close || maxVotes < 3) {
+        final = mergeUnion(base, other)
         converged = true
       } else {
         const third = await settle()
@@ -320,6 +357,7 @@ Deno.serve(async (req: Request) => {
       model,
       converged,
       disagreement_seats: disagreements,
+      grid_diff: gridDiff,
       votes_used: votesUsed,
       seat_count: seats,
       occupied_count: occupied,
